@@ -11,8 +11,8 @@ blends visible light by day with city lights at night. No account or API key is 
 
 ## What it does
 
-- Every 10 minutes, a systemd user timer checks NOAA for a new frame. Unchanged frames cost one
-  HTTP request and finish in about a tenth of a second.
+- Every 10 minutes, a systemd user timer asks NOAA for the frame's timestamp with a HEAD request.
+  An unchanged frame costs a few hundred bytes and finishes in about a tenth of a second.
 - A new frame is downloaded into tmpfs, cropped around your configured point at your display's
   native resolution, handed to Omarchy, and the source is discarded. The previous wallpaper frame
   is deleted the moment the new one is applied, so exactly one image ever lives on disk.

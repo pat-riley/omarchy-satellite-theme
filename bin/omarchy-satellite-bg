@@ -2,7 +2,7 @@
 # Live GOES satellite wallpaper for Omarchy.
 # Keeps exactly one file on disk: the current wallpaper frame. The source image is
 # downloaded into tmpfs, cropped, and deleted in the same run. Only a tiny ETag
-# text file with the Last-Modified stamp is kept so unchanged frames are skipped without a download.
+# text file with the frame timestamp is kept so unchanged frames are skipped without a download.
 set -euo pipefail
 
 SOURCE_URL="https://cdn.star.nesdis.noaa.gov/GOES19/ABI/CONUS/GEOCOLOR/5000x3000.jpg"
@@ -14,7 +14,7 @@ OUT_DIR="$HOME/.config/omarchy/backgrounds/$THEME"
 STATE="$HOME/.cache/omarchy-satellite"          # holds only etag + lock
 TMP="${XDG_RUNTIME_DIR:-/tmp}/omarchy-satellite" # tmpfs: never touches disk
 mkdir -p "$OUT_DIR" "$STATE" "$TMP"
-SRC="$TMP/source.jpg"; HDR="$TMP/headers"; STAMP_FILE="$STATE/last-modified"
+SRC="$TMP/source.jpg"; HDR="$TMP/headers"; STAMP_FILE="$STATE/frame-epoch"
 trap 'rm -f "$SRC" "$SRC.tmp" "$HDR"' EXIT
 
 exec 9>"$STATE/lock"; flock -n 9 || { echo "another refresh is running"; exit 0; }
@@ -29,22 +29,24 @@ if [[ -z $WIDTH || -z $HEIGHT ]]; then
   WIDTH=${WIDTH:-3024}; HEIGHT=${HEIGHT:-1964}
 fi
 
-# --- conditional download keyed on Last-Modified; a 304 means NOAA has not posted a new frame
-curl_args=(-fsSL --retry 3 --retry-delay 5 --max-time 180 -D "$HDR" -o "$SRC.tmp" -w '%{http_code}')
-if (( ${#existing[@]} > 0 && FORCE == 0 )) && [[ -s $STAMP_FILE ]]; then
-  curl_args+=(-H "If-Modified-Since: $(head -n1 "$STAMP_FILE")")
-fi
-code=$(curl "${curl_args[@]}" "$SOURCE_URL") || { echo "download failed ($code)" >&2; exit 1; }
-if [[ $code == 304 ]]; then echo "no new frame"; exit 0; fi
+# --- is there a newer frame? NOAA serves this file from several backends whose copies differ
+# by a few seconds, so exact ETag / If-Modified-Since checks are unreliable. A HEAD request
+# costs a few hundred bytes; only download when the timestamp moved by more than 2 minutes.
+lm=$(curl -fsSIL --max-time 30 "$SOURCE_URL" | grep -i -m1 '^last-modified:' | cut -d' ' -f2- | tr -d '\r' || true)
+new_epoch=$(date -u -d "${lm:-now}" +%s 2>/dev/null || date -u +%s)
+old_epoch=$(cat "$STAMP_FILE" 2>/dev/null || echo 0)
+if (( ${#existing[@]} > 0 && FORCE == 0 && new_epoch - old_epoch < 120 )); then echo "no new frame"; exit 0; fi
+
+code=$(curl -fsSL --retry 3 --retry-delay 5 --max-time 180 -D "$HDR" -o "$SRC.tmp" -w '%{http_code}' "$SOURCE_URL") \
+  || { echo "download failed ($code)" >&2; exit 1; }
 mv "$SRC.tmp" "$SRC"
 
-# --- frame timestamp (UTC) from the image's Last-Modified header
-lm=$(grep -i -m1 '^last-modified:' "$HDR" | cut -d' ' -f2- | tr -d '\r' || true)
-stamp=$(date -u -d "${lm:-now}" +%Y%m%d-%H%MZ 2>/dev/null || date -u +%Y%m%d-%H%MZ)
+# --- frame timestamp (UTC) from the downloaded image's Last-Modified header
+lm=$(grep -i -m1 '^last-modified:' "$HDR" | cut -d' ' -f2- | tr -d '\r' || echo "$lm")
+new_epoch=$(date -u -d "${lm:-now}" +%s 2>/dev/null || date -u +%s)
+stamp=$(date -u -d "@$new_epoch" +%Y%m%d-%H%MZ)
 out="$OUT_DIR/goes-$stamp.jpg"
-# the server answered 200 but it is the frame already on screen: skip the crop
-if [[ -f $out && FORCE == 0 ]]; then echo "no new frame (server resent $stamp)"; exit 0; fi
-[[ -n $lm ]] && printf '%s\n' "$lm" > "$STAMP_FILE"
+printf '%s\n' "$new_epoch" > "$STAMP_FILE"
 
 # --- crop window around the configured point, clamped to the source bounds
 SW=$(magick identify -format '%w' "$SRC"); SH=$(magick identify -format '%h' "$SRC")
