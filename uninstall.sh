@@ -6,6 +6,13 @@ rm -f "$HOME/.config/systemd/user/omarchy-satellite-bg.service" "$HOME/.config/s
 systemctl --user daemon-reload
 rm -f "$HOME/.local/bin/omarchy-satellite-bg" "$HOME/.local/bin/omarchy-satellite-palette"
 rm -f "$HOME/.config/omarchy/hooks/theme-set.d/satellite-bg-hook"
+rm -f "$HOME/.config/omarchy/themed/gtk.css.tpl"
+for v in gtk-4.0 gtk-3.0; do
+  f="$HOME/.config/$v/gtk.css"
+  [[ -f $f ]] || continue
+  sed -i '\#omarchy/current/theme/gtk.css#d' "$f"
+  [[ -s $f ]] || rm -f "$f"
+done
 rm -rf "$HOME/.config/omarchy/backgrounds/satellite" "$HOME/.cache/omarchy-satellite" "${XDG_RUNTIME_DIR:-/tmp}/omarchy-satellite"
 if [[ ${1:-} == --purge ]]; then
   rm -rf "$HOME/.config/omarchy/themes/satellite" "$HOME/.config/omarchy/satellite-bg.conf"

@@ -73,6 +73,17 @@ sand, soil, and shallow water. Earth imagery has no red or magenta, so those two
 from the desert and ocean tones. Text contrast against the background is enforced at 9:1 or
 better. This is deliberately not on the timer, since re-rendering a theme reloads terminals.
 
+## GTK apps follow the theme too
+
+Omarchy doesn't theme GTK and libadwaita apps such as Files, so they stay stock gray under every
+theme. The installer adds a user template, `~/.config/omarchy/themed/gtk.css.tpl`, that renders
+the current theme's colors into libadwaita's CSS variables (and the older `@define-color` names
+for GTK3), and points `~/.config/gtk-4.0/gtk.css` and `~/.config/gtk-3.0/gtk.css` at the
+rendered file. Because it's a user template, it applies to every Omarchy theme you switch to,
+not only this one. GTK apps pick the colors up on their next launch.
+
+The theme also sets the Yaru-blue icon set so folders read as ocean rather than olive.
+
 ## Uninstall
 
 ```bash
@@ -89,6 +100,7 @@ better. This is deliberately not on the timer, since re-rendering a theme reload
 | `bin/omarchy-satellite-palette` | derive `colors.toml` from a frame |
 | `systemd/` | user service and 10-minute timer |
 | `hooks/satellite-bg-hook` | refresh on theme switch |
+| `gtk/gtk.css.tpl` | GTK and libadwaita colors rendered from any theme |
 | `satellite-bg.conf.example` | location and zoom settings |
 
 ## License
