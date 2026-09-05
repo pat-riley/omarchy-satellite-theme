@@ -1,0 +1,4 @@
+#!/bin/bash
+# Refresh the live satellite wallpaper right after switching to the satellite theme.
+[[ $1 == satellite ]] && systemctl --user start omarchy-satellite-bg.service
+exit 0

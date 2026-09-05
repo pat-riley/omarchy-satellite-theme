@@ -1,0 +1,19 @@
+# Live satellite wallpaper settings (sourced by ~/.local/bin/omarchy-satellite-bg)
+
+# NOAA STAR GOES-East CONUS GeoColor, 5000x3000 (~10 MB, refreshed every 5 min, no key needed)
+SOURCE_URL="https://cdn.star.nesdis.noaa.gov/GOES19/ABI/CONUS/GEOCOLOR/5000x3000.jpg"
+
+# Pixel in the source image to center the wallpaper on. Calibrated to Nashville, TN.
+CENTER_X=2628
+CENTER_Y=999
+
+# 1.0 = crop at native resolution (about 1 km per pixel, ~3000 km wide on a 3024px display).
+# 1.5 = zoom in 1.5x (softer, ~2000 km wide). Values below 1 zoom out.
+ZOOM=1.0
+
+# Output size. Leave empty to use the primary monitor's resolution from hyprctl.
+WIDTH=
+HEIGHT=
+
+# Only apply the wallpaper while this theme is active.
+THEME=satellite

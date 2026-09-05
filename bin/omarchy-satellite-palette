@@ -1,0 +1,73 @@
+#!/usr/bin/env node
+// Derive the Omarchy "satellite" theme colors from the current GOES wallpaper frame.
+// Usage: omarchy-satellite-palette [--apply] [frame.jpg]
+const { execFileSync } = require("child_process");
+const fs = require("fs"); const os = require("os"); const path = require("path");
+
+const home = os.homedir();
+const args = process.argv.slice(2);
+const apply = args.includes("--apply");
+const bgDir = path.join(home, ".config/omarchy/backgrounds/satellite");
+const frame = args.find(a => !a.startsWith("--")) ||
+  fs.readdirSync(bgDir).filter(f => /^goes-.*\.jpg$/.test(f)).map(f => path.join(bgDir, f)).sort().pop();
+if (!frame) { console.error("no satellite frame found"); process.exit(1); }
+const out = path.join(home, ".config/omarchy/themes/satellite/colors.toml");
+
+// ---- sample the image: 32 k-means clusters with pixel counts
+const hist = execFileSync("magick", [frame, "-resize", "400x", "-kmeans", "32", "-depth", "8", "-format", "%c", "histogram:info:"], { encoding: "utf8" });
+const clusters = hist.trim().split("\n").map(l => { const m = l.match(/^\s*(\d+):.*?(#[0-9A-Fa-f]{6})/); return m && { n: +m[1], hex: m[2].toLowerCase() }; }).filter(Boolean);
+
+// ---- color helpers
+const toRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const toHex = ([r, g, b]) => "#" + [r, g, b].map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join("");
+function toHsl([r, g, b]) { r /= 255; g /= 255; b /= 255; const M = Math.max(r, g, b), m = Math.min(r, g, b), l = (M + m) / 2; let h = 0, s = 0; if (M !== m) { const d = M - m; s = l > .5 ? d / (2 - M - m) : d / (M + m); h = M === r ? (g - b) / d + (g < b ? 6 : 0) : M === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; } return [h, s * 100, l * 100]; }
+function fromHsl([h, s, l]) { h = ((h % 360) + 360) % 360; s /= 100; l /= 100; const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2; let [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]; return [(r + m) * 255, (g + m) * 255, (b + m) * 255]; }
+const lum = h => { const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }; const [r, g, b] = toRgb(h); return .2126 * f(r) + .7152 * f(g) + .0722 * f(b); };
+const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + .05) / (y + .05); };
+// keep a cluster's hue, set saturation and lightness to targets
+const tune = (hex, { s: sMin, l }) => { const [h, s, _l] = toHsl(toRgb(hex)); return toHex(fromHsl([h, sMin, l])); };
+const shift = (hex, dh, { s, l }) => { const [h] = toHsl(toRgb(hex)); return toHex(fromHsl([h + dh, s, l])); };
+
+// ---- classify clusters by what they are on Earth
+const c = clusters.map(k => { const [h, s, l] = toHsl(toRgb(k.hex)); return { ...k, h, s, l }; });
+const pick = (pred, fallback) => { const m = c.filter(pred).sort((a, b) => b.n - a.n)[0]; return m ? m.hex : fallback; };
+const ocean  = pick(k => k.h >= 195 && k.h <= 230 && k.s > 40 && k.l < 20, "#0f283a");   // deep water
+const cloud  = pick(k => k.s < 12 && k.l > 78, "#dddfe1");                                // cloud tops
+const forest = pick(k => k.h >= 80 && k.h <= 160 && k.s > 12 && k.l < 45, "#3b4b36");     // vegetation
+const sand   = pick(k => k.h >= 20 && k.h <= 50 && k.s > 10 && k.l >= 30 && k.l < 60, "#786859"); // desert / plains
+const earth  = pick(k => k.h >= 20 && k.h <= 50 && k.s > 30 && k.l < 30, "#483315");      // dark soil
+const shoal  = pick(k => k.h >= 170 && k.h <= 200 && k.s > 40, "#0f606a");                // shallow turquoise water
+
+// ---- build the palette (dark mode: the ocean is the background)
+const p = {};
+p.background         = tune(ocean, { s: 45, l: 12 });
+p.dark_background    = tune(ocean, { s: 50, l: 8 });
+p.darker_background  = tune(ocean, { s: 55, l: 5 });
+p.lighter_background = tune(ocean, { s: 35, l: 18 });
+p.selection          = tune(ocean, { s: 30, l: 24 });
+p.muted              = tune(ocean, { s: 20, l: 34 });
+p.foreground         = tune(cloud, { s: 6, l: 86 });
+p.bright_foreground  = tune(cloud, { s: 6, l: 93 });
+p.light_foreground   = tune(cloud, { s: 5, l: 80 });
+p.dark_foreground    = tune(cloud, { s: 5, l: 60 });
+p.accent             = tune(shoal, { s: 42, l: 56 });
+p.cyan               = tune(shoal, { s: 38, l: 60 });
+p.blue               = tune(ocean, { s: 42, l: 62 });
+p.green              = tune(forest, { s: 32, l: 58 });
+p.yellow             = tune(sand, { s: 45, l: 66 });
+p.orange             = tune(earth, { s: 60, l: 58 });
+p.brown              = tune(earth, { s: 45, l: 26 });
+p.red                = shift(earth, -22, { s: 52, l: 60 });   // clay: desert hue pulled toward red
+p.magenta            = shift(ocean, 70, { s: 28, l: 66 });    // dusk: ocean hue pulled toward violet
+for (const k of ["red", "yellow", "green", "cyan", "blue", "magenta"]) {
+  const [h, s, l] = toHsl(toRgb(p[k])); p["bright_" + k] = toHex(fromHsl([h, Math.min(100, s + 8), Math.min(92, l + 8)]));
+}
+// guarantee readable text
+while (contrast(p.foreground, p.background) < 9) p.background = tune(p.background, { s: 45, l: toHsl(toRgb(p.background))[2] - 1 });
+
+const order = ["accent", "selection", "muted", "", "background", "dark_background", "darker_background", "lighter_background", "", "foreground", "dark_foreground", "light_foreground", "bright_foreground", "", "red", "yellow", "orange", "green", "cyan", "blue", "magenta", "brown", "", "bright_red", "bright_yellow", "bright_green", "bright_cyan", "bright_blue", "bright_magenta"];
+const toml = `mode = "dark"\n\n# Derived from ${path.basename(frame)} by omarchy-satellite-palette\n# ocean=${ocean} cloud=${cloud} forest=${forest} sand=${sand} earth=${earth} shoal=${shoal}\n\n` +
+  order.map(k => k ? `${k} = "${p[k]}"` : "").join("\n") + "\n";
+console.log(toml);
+console.error(`fg/bg contrast ${contrast(p.foreground, p.background).toFixed(1)}:1`);
+if (apply) { fs.writeFileSync(out, toml); console.error(`wrote ${out}`); }

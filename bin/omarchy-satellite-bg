@@ -1,0 +1,66 @@
+#!/bin/bash
+# Live GOES satellite wallpaper for Omarchy.
+# Keeps exactly one file on disk: the current wallpaper frame. The source image is
+# downloaded into tmpfs, cropped, and deleted in the same run. Only a tiny ETag
+# text file is kept so unchanged frames are skipped without a download.
+set -euo pipefail
+
+SOURCE_URL="https://cdn.star.nesdis.noaa.gov/GOES19/ABI/CONUS/GEOCOLOR/5000x3000.jpg"
+CENTER_X=2628; CENTER_Y=999; ZOOM=1.0; WIDTH=""; HEIGHT=""; THEME=satellite
+CONF="$HOME/.config/omarchy/satellite-bg.conf"
+[[ -f $CONF ]] && source "$CONF"
+
+OUT_DIR="$HOME/.config/omarchy/backgrounds/$THEME"
+STATE="$HOME/.cache/omarchy-satellite"          # holds only etag + lock
+TMP="${XDG_RUNTIME_DIR:-/tmp}/omarchy-satellite" # tmpfs: never touches disk
+mkdir -p "$OUT_DIR" "$STATE" "$TMP"
+SRC="$TMP/source.jpg"; HDR="$TMP/headers"; ETAG_FILE="$STATE/etag"
+trap 'rm -f "$SRC" "$SRC.tmp" "$HDR"' EXIT
+
+exec 9>"$STATE/lock"; flock -n 9 || { echo "another refresh is running"; exit 0; }
+FORCE=0; [[ ${1:-} == --force ]] && FORCE=1
+
+shopt -s nullglob; existing=("$OUT_DIR"/goes-*.jpg); shopt -u nullglob
+
+# --- output size: primary monitor unless configured
+if [[ -z $WIDTH || -z $HEIGHT ]]; then
+  WIDTH=$(hyprctl monitors -j 2>/dev/null | jq -r '.[0].width' 2>/dev/null || true)
+  HEIGHT=$(hyprctl monitors -j 2>/dev/null | jq -r '.[0].height' 2>/dev/null || true)
+  WIDTH=${WIDTH:-3024}; HEIGHT=${HEIGHT:-1964}
+fi
+
+# --- conditional download; a 304 means NOAA has not posted a new frame
+curl_args=(-fsSL --retry 3 --retry-delay 5 --max-time 180 -D "$HDR" -o "$SRC.tmp" -w '%{http_code}')
+if (( ${#existing[@]} > 0 && FORCE == 0 )) && [[ -s $ETAG_FILE ]]; then
+  curl_args+=(-H "If-None-Match: $(head -n1 "$ETAG_FILE")")
+fi
+code=$(curl "${curl_args[@]}" "$SOURCE_URL") || { echo "download failed ($code)" >&2; exit 1; }
+if [[ $code == 304 ]]; then echo "no new frame"; exit 0; fi
+mv "$SRC.tmp" "$SRC"
+grep -i -m1 '^etag:' "$HDR" | awk '{print $2}' | tr -d '\r' > "$ETAG_FILE" || true
+
+# --- frame timestamp (UTC) from the image's Last-Modified header
+lm=$(grep -i -m1 '^last-modified:' "$HDR" | cut -d' ' -f2- | tr -d '\r' || true)
+stamp=$(date -u -d "${lm:-now}" +%Y%m%d-%H%MZ 2>/dev/null || date -u +%Y%m%d-%H%MZ)
+out="$OUT_DIR/goes-$stamp.jpg"
+
+# --- crop window around the configured point, clamped to the source bounds
+SW=$(magick identify -format '%w' "$SRC"); SH=$(magick identify -format '%h' "$SRC")
+cw=$(awk -v w="$WIDTH" -v z="$ZOOM" 'BEGIN{printf "%d", w/z}')
+ch=$(awk -v h="$HEIGHT" -v z="$ZOOM" 'BEGIN{printf "%d", h/z}')
+(( cw > SW )) && cw=$SW; (( ch > SH )) && ch=$SH
+x0=$(( CENTER_X - cw/2 )); y0=$(( CENTER_Y - ch/2 ))
+(( x0 < 0 )) && x0=0; (( y0 < 0 )) && y0=0
+(( x0 + cw > SW )) && x0=$(( SW - cw )); (( y0 + ch > SH )) && y0=$(( SH - ch ))
+
+magick -limit memory 256MiB -limit map 512MiB "$SRC" \
+  -crop "${cw}x${ch}+${x0}+${y0}" +repage -resize "${WIDTH}x${HEIGHT}!" \
+  -strip -quality 90 "$TMP/frame.jpg"
+rm -f "$SRC"
+mv "$TMP/frame.jpg" "$out"
+
+# --- apply, then immediately remove every previous frame
+current=$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null || true)
+[[ $current == "$THEME" ]] && omarchy-theme-bg-set "$out"
+for old in "${existing[@]}"; do [[ $old != "$out" ]] && rm -f "$old"; done
+echo "updated $out"

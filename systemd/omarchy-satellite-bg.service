@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh live GOES satellite wallpaper
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/omarchy-satellite-bg
+Nice=19
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
