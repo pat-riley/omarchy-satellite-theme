@@ -15,7 +15,7 @@ HOOKS="$HOME/.config/omarchy/hooks/theme-set.d"
 CONF="$HOME/.config/omarchy/satellite-bg.conf"
 mkdir -p "$THEME_DIR" "$BIN" "$UNITS" "$HOOKS"
 
-install -m 644 colors.toml icons.theme "$THEME_DIR/"
+install -m 644 colors.toml icons.theme preview.png "$THEME_DIR/"
 install -m 755 bin/omarchy-satellite-bg bin/omarchy-satellite-palette "$BIN/"
 install -m 644 systemd/omarchy-satellite-bg.service systemd/omarchy-satellite-bg.timer "$UNITS/"
 install -m 755 hooks/satellite-bg-hook "$HOOKS/satellite-bg-hook"

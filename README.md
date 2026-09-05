@@ -4,6 +4,8 @@ An [Omarchy](https://omarchy.org) theme whose wallpaper is live satellite imager
 your location, and whose colors are pulled from that imagery: ocean for backgrounds, cloud tops
 for text, shallow water for the accent, forest, sand, and soil for the rest.
 
+![Satellite theme preview](preview.png)
+
 The wallpaper comes from NOAA's GOES-19 GeoColor product, which updates every five minutes and
 blends visible light by day with city lights at night. No account or API key is needed.
 
